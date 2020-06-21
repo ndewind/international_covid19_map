@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+
+<meta charset="utf-8" name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style type="text/css">
+
+	.bodyText { 
+		font-family: Arial, Helvetica, sans-serif;
+		margin-left: auto;
+		margin-right: auto;
+		max-width:70em;
+		text-align: justify;
+		text-justify: inter-word; }
+
+	.plotArea { 
+		font-family: Arial, Helvetica, sans-serif;
+		margin-left: auto;
+		margin-right: auto;
+		max-width:70em;
+		height:auto;
+		text-align: center;
+		text-justify: inter-word;
+		line-height: 3;}
+
+	.plotAreaSmall { 
+		font-family: Arial, Helvetica, sans-serif;
+		margin-left: auto;
+		margin-right: auto;
+		max-width:35em;
+		height:auto;
+		text-align: center;
+		text-justify: inter-word;}
+	
+	.titleText { 
+		font-family: Arial, Helvetica, sans-serif;
+		margin-left: auto;
+		margin-right: auto;
+		max-width:70em }
+
+	.column {
+		float: left;
+	}
+	
+	.map {
+		width: 60%;
+	}
+	
+	.line {
+		width: 40%;
+	}
+	
+	.rowContainer { 
+		font-family: Arial, Helvetica, sans-serif;
+		margin-left: auto;
+		margin-right: auto;
+		max-width:70em;
+		height:auto;
+		text-align: center;
+		text-justify: inter-word;}
+	
+	/* Clear floats after the columns */
+	.row {
+		font-family: Arial, Helvetica, sans-serif;
+		margin-left: auto;
+		margin-right: auto;
+		max-width:70em;
+		height:auto;
+		text-align: center;
+		text-justify: inter-word;}
+	}
+	.row:after {
+	  content: "";
+	  display: table;
+	  clear: both;
+	}
+		
+	/* Responsive layout - makes the two columns stack on top of each other instead of next to each other */
+	@media screen and (max-width: 70em) {
+	  .column.map, .column.line {
+		width: 100%;
+	  }
+	}
+	
+</style>
+
+<head>
+	<!-- Load plotly.js into the DOM -->
+	<script src='https://cdn.plot.ly/plotly-latest.min.js'></script>
+	<!--Load JQuery-->
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+	<script src="scripts/2020_05_12/mapboard_js.js"></script>
+	<!-- Load bootstrap -->
+	<link href="bootstrap/css/bootstrap.min.css" rel="stylesheet">
+	<script src="bootstrap/js/bootstrap.bundle.min.js"></script>
+	
+</head>
+
+<body>
+	
+	<div class="titleText">
+	
+		<h1>COVID-19 Global Dashboard</h1>
+	
+		<p>by <a href="https://nickdewind.com/">Nick DeWind</a> May 15, 2020 </p>
+		
+	</div>
+	
+	<p class="bodyText"> Click the buttons to toggle between deaths and cases, between totals and population adjusted numbers, and between all data and just data from the last two weeks. Scroll zoom in and out on the map, and click a country to see a timeseries.
+	</p>
+	<br><br>
+	
+	<div class="plotArea">
+		<p>
+			<!-- Radio buttons -->	
+			<form id="deathToggleForm" class="btn-group btn-group-toggle" data-toggle="buttons">
+			  <label class="btn btn-secondary active">
+				<input id="deathBut" type="radio" name="deathToggle" value="deaths" checked="true">Deaths<br>
+			  </label>
+			  <label class="btn btn-secondary">
+				<input id="casesBut" type="radio" name="deathToggle" value="cases">Cases<br>
+			  </label>
+			</form>
+			
+			<form id="k100Form" class="btn-group btn-group-toggle" data-toggle="buttons">
+			  <label class="btn btn-secondary active">
+				<input id="totalBut" type="radio" name="k100" value="total" checked="true">Total<br>
+			  </label>
+			  <label class="btn btn-secondary">
+				<input id="per100kBut" type="radio" name="k100" value="k100">Per 100k<br>
+			  </label>
+			</form>
+			
+			<form id="last2Form" class="btn-group btn-group-toggle" data-toggle="buttons">
+			  <label class="btn btn-secondary active">
+				<input id="allBut" type="radio" name="last2" value="all" checked="true">All Dates<br>
+			  </label>
+			  <label class="btn btn-secondary">
+				<input id="last2But" type="radio" name="last2" value="last2">Last 2 Weeks<br>
+			  </label>
+			</form>
+	
+		</p>
+	
+	</div>
+	
+	<div class="rowContainer">	
+		<div class="row">
+			<div class="column map">
+				<div class="plotArea" id='mapDiv'><!-- Plotly chart will be drawn inside this DIV --></div>
+			</div>
+			<div class="column line">
+				<div class="plotArea" id='linePlotDiv'></div>
+			</div>
+		</div>
+	</div>
+	
+	<div class="plotAreaSmall" id='barPlotDiv'><!-- Plotly chart will be drawn inside this DIV --></div>
+	
+	<p class="bodyText"> <a href="https://github.com/owid/covid-19-data/blob/master/public/data/">Raw data</a></p>
+	
+</body>
+
+<script>
+
+Plotly.d3.csv('https://covid.ourworldindata.org/data/owid-covid-data.csv', function(err, rows){
+	// data info here: https://github.com/owid/covid-19-data/blob/master/public/data/owid-covid-data-codebook.md
+	
+	// initialize radio buttons
+	var zdata = [];
+	var ydata = [];
+	var yaxislabel;
+	var mapTitle;
+	var colorScale;
+	var deathCase = document.getElementById("deathToggleForm");
+	var k100 = document.getElementById("k100Form");
+	var last2 = document.getElementById("last2Form");
+	document.getElementById("deathBut").checked = true;
+	document.getElementById("totalBut").checked = true;
+	document.getElementById("allBut").checked = true;
+	
+	// unpack the csv data into arrays
+	let allDeathStr = unpack(rows,'new_deaths');
+	let allDeaths = str2num(allDeathStr); // convert string deaths to numerical deaths.
+	let allCaseStr = unpack(rows,'new_cases');
+	let allCase = str2num(allCaseStr); // convert string deaths to numerical deaths.
+	let allPopStr = unpack(rows,'population');
+	let allPop = str2num(allPopStr);
+	let allLoc = unpack(rows,'location');
+	let allDateStr = unpack(rows,'date');
+	let allDate = dateStr2Date(allDateStr);
+	
+	// calculate cumulative deaths by country in last 2 weeks.
+	let thisLocDeaths = [];
+	let thisDate = [];
+	var uniLoc = unique(allLoc);
+	let cumDeath2weeks = [];
+	let today = new Date;
+	let twoWeeksAgo = new Date;
+	var allDateArr = []; // array full of arrays of x-axis dates for each line graph
+	twoWeeksAgo.setDate( today.getDate() - 14 );
+	for (let kloc = 0; kloc < uniLoc.length; kloc++) {
+		thisDate = subArrLog(allDate,logIndx(allLoc,uniLoc[kloc]));
+		allDateArr[kloc] = thisDate;
+		thisLocDeaths = subArrLog(allDeaths,logIndx(allLoc,uniLoc[kloc]));
+		cumDeath2weeks[kloc] = 0;
+		for (let kdate = 0; kdate < thisDate.length; kdate++){
+			if (thisDate[kdate] > twoWeeksAgo){
+				cumDeath2weeks[kloc] = cumDeath2weeks[kloc] + thisLocDeaths[kdate];
+			}
+		}
+	}
+	
+	// calculate cumulative cases by country in last 2 weeks.
+	let thisLocCases = [];
+	//let thisDate = [];
+	//let uniLoc = unique(allLoc);
+	let cumCase2weeks = [];
+	//let today = new Date;
+	//let twoWeeksAgo = new Date;
+	//twoWeeksAgo.setDate( today.getDate() - 14 );
+	for (let kloc = 0; kloc < uniLoc.length; kloc++) {
+		thisDate = subArrLog(allDate,logIndx(allLoc,uniLoc[kloc]));
+		thisLocCases = subArrLog(allCase,logIndx(allLoc,uniLoc[kloc]));
+		cumCase2weeks[kloc] = 0;
+		for (let kdate = 0; kdate < thisDate.length; kdate++){
+			if (thisDate[kdate] > twoWeeksAgo){
+				cumCase2weeks[kloc] = cumCase2weeks[kloc] + thisLocCases[kdate];
+			}
+		}
+	}
+
+	// calculate cumulative deaths by country from daily deaths
+	//let thisLocDeaths = [];
+	//let uniLoc = unique(allLoc);
+	let cumDeath = [];
+	var allDDArr = [];
+	for (let kloc = 0; kloc < uniLoc.length; kloc++) {
+		thisLocDeaths = subArrLog(allDeaths,logIndx(allLoc,uniLoc[kloc]));
+		allDDArr[kloc] = thisLocDeaths;
+		cumDeath[kloc] = sum(thisLocDeaths);
+	}
+	
+	// calculate cumulative cases by country from daily cases
+	//let thisLocCases = [];
+	//let uniLoc = unique(allLoc);
+	let cumCase = [];
+	var allDCArr = [];
+	for (let kloc = 0; kloc < uniLoc.length; kloc++) {
+		thisLocCases = subArrLog(allCase,logIndx(allLoc,uniLoc[kloc]));
+		allDCArr[kloc] = thisLocCases;
+		cumCase[kloc] = sum(thisLocCases);
+	}
+	
+	// get population of each country
+	thisLocPops = [];
+	locPops = [];
+	for (let kloc = 0; kloc < uniLoc.length; kloc++) {
+		thisLocPops = subArrLog(allPop,logIndx(allLoc,uniLoc[kloc]));
+		locPops[kloc] = thisLocPops[0];
+	}
+	
+	// calculate deaths per 100k
+	cumDeath100k = [];
+	var allDD100kArr = [];
+	for (let kloc = 0; kloc < uniLoc.length; kloc++) {
+		cumDeath100k[kloc] = cumDeath[kloc] / locPops[kloc] * 100000;
+		if (!isFinite(cumDeath100k[kloc])) {cumDeath100k[kloc] = 0;}
+		allDD100kArr[kloc] = [];
+		for (let kdate = 0; kdate < allDDArr[kloc].length; kdate++) {
+			allDD100kArr[kloc][kdate] = allDDArr[kloc][kdate] / locPops[kloc] * 100000;
+			if (!isFinite(allDD100kArr[kloc][kdate])) {allDD100kArr[kloc][kdate] = 0;}
+		}
+	}
+	
+	// calculate cases per 100k
+	cumCase100k = [];
+	var allDC100kArr = [];
+	for (let kloc = 0; kloc < uniLoc.length; kloc++) {
+		cumCase100k[kloc] = cumCase[kloc] / locPops[kloc] * 100000;
+		if (!isFinite(cumCase100k[kloc])) {cumCase100k[kloc] = 0;}
+		allDC100kArr[kloc] = [];
+		for (let kdate = 0; kdate < allDCArr[kloc].length; kdate++) {
+			allDC100kArr[kloc][kdate] = allDCArr[kloc][kdate] / locPops[kloc] * 100000;
+			if (!isFinite(allDC100kArr[kloc][kdate])) {allDC100kArr[kloc][kdate] = 0;}
+		}
+	} 	
+	
+	// calculate deaths in last 2 weeks per 100k
+	cumDeath2weeks100k = [];
+	for (let kloc = 0; kloc < uniLoc.length; kloc++) {
+		cumDeath2weeks100k[kloc] = cumDeath2weeks[kloc] / locPops[kloc] * 100000;
+		if (!isFinite(cumDeath2weeks100k[kloc])) {cumDeath2weeks100k[kloc] = 0;}
+	}
+	
+	// calculate cases in last 2 weeks per 100k
+	cumCase2weeks100k = [];
+	for (let kloc = 0; kloc < uniLoc.length; kloc++) {
+		cumCase2weeks100k[kloc] = cumCase2weeks[kloc] / locPops[kloc] * 100000;
+		if (!isFinite(cumCase2weeks100k[kloc])) {cumCase2weeks100k[kloc] = 0;}
+	}
+	
+	
+	// knock off last two values (international deaths and total world deaths)
+	uniLoc.pop();
+	uniLoc.pop();
+	
+	cumDeath.pop();
+	cumDeath.pop();
+	cumDeath100k.pop();
+	cumDeath100k.pop();
+	cumDeath2weeks.pop();
+	cumDeath2weeks.pop();
+	cumDeath2weeks100k.pop();
+	cumDeath2weeks100k.pop();
+	
+	cumCase.pop();
+	cumCase.pop();
+	cumCase100k.pop();
+	cumCase100k.pop();
+	cumCase2weeks.pop();
+	cumCase2weeks.pop();
+	cumCase2weeks100k.pop();
+	cumCase2weeks100k.pop();
+	
+	// choose the z data based on the radio buttons' values
+	function genZData() {
+		if  (deathCase.deathToggle.value === 'deaths' & k100.k100.value === 'total' & last2.last2.value === 'all') {
+			zdata = cumDeath;
+			mapTitle = 'Total Deaths';
+			colorScale = '';
+		}else if (deathCase.deathToggle.value === 'cases' & k100.k100.value === 'total' & last2.last2.value === 'all'){
+			zdata = cumCase;
+			mapTitle = 'Total Cases';
+			colorScale = [ ['0.0','rgb(210,210,210)'],['0.45','rgb(109,169,109)'],['1.0','rgb(0,0,229)'] ];
+		}else if (deathCase.deathToggle.value === 'deaths' & k100.k100.value === 'k100' & last2.last2.value === 'all'){
+			zdata = cumDeath100k;
+			mapTitle = 'Deaths per 100k';
+			colorScale = '';
+		}else if (deathCase.deathToggle.value === 'cases' & k100.k100.value === 'k100' & last2.last2.value === 'all'){
+			zdata = cumCase100k;
+			mapTitle = 'Cases per 100k';
+			colorScale = [ ['0.0','rgb(210,210,210)'],['0.45','rgb(109,169,109)'],['1.0','rgb(0,0,229)'] ];
+		}else if  (deathCase.deathToggle.value === 'deaths' & k100.k100.value === 'total' & last2.last2.value === 'last2') {
+			zdata = cumDeath2weeks;
+			mapTitle = 'Total Deaths in Last Two Weeks';
+			colorScale = '';
+		}else if (deathCase.deathToggle.value === 'cases' & k100.k100.value === 'total' & last2.last2.value === 'last2'){
+			zdata = cumCase2weeks;
+			mapTitle = 'Total Cases in Last Two Weeks';
+			colorScale = [ ['0.0','rgb(210,210,210)'],['0.45','rgb(109,169,109)'],['1.0','rgb(0,0,229)'] ];
+		}else if (deathCase.deathToggle.value === 'deaths' & k100.k100.value === 'k100' & last2.last2.value === 'last2'){
+			zdata = cumDeath2weeks100k;
+			mapTitle = 'Deaths per 100k in Last Two Weeks';
+			colorScale = '';
+		}else if (deathCase.deathToggle.value === 'cases' & k100.k100.value === 'k100' & last2.last2.value === 'last2'){
+			zdata = cumCase2weeks100k;
+			mapTitle = 'Cases per 100k in Last Two Weeks';
+			colorScale = [ ['0.0','rgb(210,210,210)'],['0.45','rgb(109,169,109)'],['1.0','rgb(0,0,229)'] ];
+		}
+	}
+	
+	// choose the y data based on the radio buttons' values
+	function genYData(clickLockIndx) {
+		if  (deathCase.deathToggle.value === 'deaths' & k100.k100.value === 'total') {
+			ydata = allDDArr[clickLockIndx];
+			yaxislabel = 'Daily Deaths';
+		}else if (deathCase.deathToggle.value === 'cases' & k100.k100.value === 'total'){
+			ydata = allDCArr[clickLockIndx];
+			yaxislabel = 'Daily New Cases';
+		}else if (deathCase.deathToggle.value === 'deaths' & k100.k100.value === 'k100'){
+			ydata = allDD100kArr[clickLockIndx];
+			yaxislabel = 'Daily Deaths per 100k';
+		}else if (deathCase.deathToggle.value === 'cases' & k100.k100.value === 'k100'){
+			ydata = allDC100kArr[clickLockIndx];
+			yaxislabel = 'Daily New Cases per 100k';
+		}
+	}
+	
+	// initial plots
+	var clickLockIndx = uniLoc.findIndex(element => element === "United States"); // default to usa line plot
+	genZData();
+	genYData(clickLockIndx);
+	rePlot(zdata,uniLoc);
+	reBarPlot(zdata,uniLoc);
+	var mapPlot = document.getElementById('mapDiv')
+	console.log(mapPlot.layout)
+	
+	// functons for clicking radio button at top
+	deathCase.onchange = function() {
+		genZData()
+		rePlot(zdata,uniLoc);
+		reBarPlot(zdata,uniLoc);
+	}
+	k100.onchange = function() {
+		genZData()
+		rePlot(zdata,uniLoc);
+		reBarPlot(zdata,uniLoc);
+	}
+	last2.onchange = function() {
+		genZData()
+		rePlot(zdata,uniLoc);
+		reBarPlot(zdata,uniLoc);
+	}
+	
+	
+	// draw the map plot
+	function rePlot(zdata,uniLoc){
+		var data = [{
+			type: 'choropleth',
+			locationmode: 'country names',
+			locations: uniLoc,
+			z: zdata,
+			colorscale: colorScale
+			/*,
+			zmin: 0,
+			zmax: 60,*/
+			//autocolorscale: true
+		}];
+
+		var layout = {
+			title: mapTitle,
+			geo: {
+				projection: {
+					type: 'robinson'
+				}
+			}/*,
+			autocolorscale: true,
+			colorscale: {
+				sequential: true
+			}*/
+				
+		};
+		
+		var config = {responsive: true, showLink: false}
+
+		Plotly.newPlot("mapDiv", data, layout, config);
+		genYData(clickLockIndx);
+		reLinePlot(clickLockIndx);
+		
+		mapPlot = document.getElementById('mapDiv')
+		mapPlot.on('plotly_click', function(clickData){
+			clickLockIndx = clickData.points[0].pointIndex;
+			genYData(clickLockIndx);
+			reLinePlot(clickLockIndx)
+		});
+	}
+
+	// draw the line plot
+	function reLinePlot(clickLockIndx){
+	
+		// line plot
+		var data = [{
+			type: 'scatter',
+			//y: allDDArr[clickLockIndx],
+			y: ydata,
+			x: allDateArr[clickLockIndx]
+		}];
+
+		var layout = {
+			title: uniLoc[clickLockIndx],
+			yaxis: {
+				title: yaxislabel
+			}
+		};
+		
+		var config = {responsive: true}
+
+		Plotly.newPlot("linePlotDiv", data, layout, config);
+	}
+	
+	// draw the bar plot
+	function reBarPlot(zdata,uniLoc){
+	
+		let topX = 15
+		
+		let barData = Array.from(zdata);
+		//console.log(barData)
+		//console.log(zdata)
+		sortWithIndices(barData);
+		barData.sortIndices.reverse();
+		barData.reverse();
+		//console.log(barData)
+		let barLoc = [];
+		for (ktop = 0; ktop < topX; ktop++){
+			barLoc[ktop] = uniLoc[barData.sortIndices[ktop]];
+		}
+		barLoc.reverse();
+		barData = barData.slice(0,topX);
+		barData.reverse();
+		//console.log(barData)
+		
+		// bar plot
+		var data = [{
+			type: 'bar',
+			orientation: 'h',
+			x: barData,
+			y: barLoc,
+			marker: {
+				'color': barData,
+                'colorscale': colorScale
+			}
+		}];
+
+		var layout = {
+			title: mapTitle + " - Top " + topX,
+			margin: {
+				l: 100
+			}
+		};
+		
+		var config = {responsive: true}
+
+		Plotly.newPlot("barPlotDiv", data, layout, config);
+		
+		
+		barPlot = document.getElementById('barPlotDiv')
+		barPlot.on('plotly_click', function(clickData){
+			clickLockIndx = uniLoc.findIndex( function(x) {
+				return x === barLoc[clickData.points[0].pointIndex];
+			});
+			//alert(clickLockIndx)
+			genYData(clickLockIndx);
+			reLinePlot(clickLockIndx)
+		});
+		
+	}
+
+	
+	
+});
+	
+</script>
